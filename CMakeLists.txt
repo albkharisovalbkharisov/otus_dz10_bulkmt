@@ -1,21 +1,21 @@
 cmake_minimum_required(VERSION 3.5)
 
-project(bulk VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
+project(bulkmt VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
 
-add_executable(bulk bulk.cpp)
+add_executable(bulkmt bulkmt.cpp)
 add_library(terminator terminator.cpp)
 
-set_target_properties(bulk terminator PROPERTIES
+set_target_properties(bulkmt terminator PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED ON
     COMPILE_OPTIONS "-Wpedantic;-Wall;-Wextra"
 )
 
-target_link_libraries(bulk
+target_link_libraries(bulkmt
     terminator
 )
 
-install(TARGETS bulk RUNTIME DESTINATION bin)
+install(TARGETS bulkmt RUNTIME DESTINATION bin)
 
 set(CPACK_GENERATOR DEB)
 
