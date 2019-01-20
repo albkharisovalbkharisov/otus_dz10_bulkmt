@@ -1,0 +1,18 @@
+language: cpp
+compiler: clang
+before_script:
+- sudo apt update
+- sudo apt install libboost-test-dev -y
+- echo "deb http://archive.ubuntu.com/ubuntu xenial main universe" | sudo tee -a /etc/apt/sources.list.d/xenial.list
+- sudo apt update
+- sudo apt install libspdlog-dev -y
+script:
+- cmake --version
+- cmake .
+- cmake --build .
+- cmake --build . --target package
+deploy:
+  provider: script
+  skip_cleanup: true
+  script:
+  - curl -T bulk-0.0.$TRAVIS_BUILD_NUMBER-Linux.deb -ualbkharisov:$BINTRAY_API_KEY "https://api.bintray.com/content/albkharisov/otus-cpp/homework/$TRAVIS_BUILD_NUMBER/bulk-0.0.$TRAVIS_BUILD_NUMBER-Linux.deb;deb_distribution=trusty;deb_component=main;deb_architecture=amd64;publish=1"
