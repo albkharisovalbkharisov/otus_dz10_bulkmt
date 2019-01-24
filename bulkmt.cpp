@@ -8,6 +8,11 @@
 #include "terminator.h"
 #include <stdexcept>
 
+#include <chrono>
+#include <condition_variable>
+#include <queue>
+#include <thread>
+
 #define SAVE_EACH_BULK_TO_SEPARATE_FILE 1
 
 /**
@@ -81,11 +86,11 @@ class printer : public IbaseClass
     }
 };
 
-class bulk : public IbaseTerminator
+class bulk : public IbaseTerminator, public threadable
 {
     const size_t bulk_size;
     vector_string vs;
-    std::list<IbaseClass *> lHandler;
+    std::list<std::tuple<IbaseClass *, std::string>> lHandler;
     size_t brace_cnt;
     std::time_t time_first_chunk;
 
@@ -173,6 +178,62 @@ std::istream& operator>>(std::istream& is, bulk& this_)
     return is;
 }
 
+
+
+
+
+std::condition_variable cv;
+std::mutex cv_m;
+std::queue<std::string> msgs;
+
+void worker(std::queue<std::string> &q)
+{
+    std::unique_lock<std::mutex> lk(cv_m);
+    std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
+    cv.wait(lk, [&q](){ return !q.empty(); });
+//    auto m = q.front();
+//    q.pop();
+    lk.unlock();
+
+    std::cout << std::this_thread::get_id() << q.size() << " pop " << m << std::endl;
+}
+
+void start_threads(void)
+{
+    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
+
+    {
+        std::lock_guard<std::mutex> lk(cv_m);
+        msgs.push("cmd1");
+        msgs.push("cmd2");
+    }
+    cv.notify_one();
+
+    {
+        std::lock_guard<std::mutex> lk(cv_m);
+        msgs.push("cmd3");
+        msgs.push("cmd4");
+    }
+    cv.notify_one();
+
+    t1.join();
+    t2.join();
+    t3.join();
+}
+
+
+
+class threadable
+{
+public:
+    virtual void dowork(void);
+};
+
+
+
+
+
+
 int main(int argc, char ** argv)
 {
     printer printerHandler;
@@ -184,6 +245,8 @@ int main(int argc, char ** argv)
         return -4;
     }
 
+//    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
+    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
     size_t j = 0;
     std::string arg = argv[1];
     try {
