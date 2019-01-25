@@ -46,6 +46,18 @@ public:
 
     virtual void handle(const type_to_handle &ht) = 0;
 
+    void dowork(void)
+    {
+        std::unique_lock<std::mutex> lk(cv_m);
+        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
+        cv.wait(lk, [&q](){ return !q.empty(); });
+        auto m = q.front();
+        q.pop();
+        handle(m);
+        lk.unlock();
+
+        std::cout << std::this_thread::get_id() << q.size() << " pop " << m << std::endl;
+    }
 protected:
     std::string output_string_make(const vector_string &vs)
     {
@@ -64,7 +76,7 @@ protected:
 };
 
 
-class saver : public IbaseClass
+class saver : public IbaseClass, public bulk_worker
 {
 public:
     void handle(const type_to_handle &ht) override
@@ -78,7 +90,7 @@ public:
     }
 };
 
-class printer : public IbaseClass
+class printer : public IbaseClass, public bulk_worker
 {
     void handle(const type_to_handle &ht) override
     {
@@ -86,11 +98,11 @@ class printer : public IbaseClass
     }
 };
 
-class bulk : public IbaseTerminator, public threadable
+class bulk : public IbaseTerminator
 {
     const size_t bulk_size;
     vector_string vs;
-    std::list<std::tuple<IbaseClass *, std::string>> lHandler;
+    std::vector<std::tuple<IbaseClass *, std::thread *>> lHandler;
     size_t brace_cnt;
     std::time_t time_first_chunk;
 
@@ -102,7 +114,7 @@ public:
 
     void add_handler(IbaseClass &handler)
     {
-        lHandler.push_back(&handler);
+        lHandler.push_back(&handler, new(std::thread));
     }
 
     void flush(void)
@@ -112,7 +124,7 @@ public:
 
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
         for (const auto &h : lHandler) {
-            h->handle(ht);
+            h->dowork(ht);
         }
 
         vs.clear();
@@ -180,7 +192,7 @@ std::istream& operator>>(std::istream& is, bulk& this_)
 
 
 
-
+#if 0
 
 std::condition_variable cv;
 std::mutex cv_m;
@@ -223,13 +235,13 @@ void start_threads(void)
 
 
 
-class threadable
-{
-public:
-    virtual void dowork(void);
-};
+//class bulk_worker
+//{
+//public:
+//    virtual void dowork(void);
+//};
 
-
+#endif  // 0
 
 
 
