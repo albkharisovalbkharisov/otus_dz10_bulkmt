@@ -37,26 +37,42 @@ using vector_string = std::vector<std::string>;
 class IbaseClass
 {
 public:
-    static std::queue<vector_string> q;
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::queue<vector_string> qMsg;
+
     std::vector<std::thread> vThread;
+    size_t threads;
     using type_to_handle = struct {
         const vector_string &vs;
         const std::time_t t;
     };
 
-    IbaseClass() = delete;
-    IbaseClass(size_t threads)
-    {
-        vThread.push_back(std::thread(work));
+    IbaseClass(size_t threads = 1) : threads(threads) {}
 
+    void start_threads(void)
+    {
+        for (size_t i = 0; i < threads; ++i)
+            vThread.push_back(std::thread(&work));
+//        for (auto &t : vThread)
+//            the_thread = std::thread(&work);
+    }
+
+    void notify(type_to_handle &ht)
+    {
+        qMsg.push_back(ht);
     }
 
     void work(void)
     {
-        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
+        std::unique_lock<std::mutex> lk(cv_m);
+        std::cout << std::this_thread::get_id() << " thread started! " << std::endl;
+        cv.wait(lk, [&q](){ return !qMsg.empty(); });
         auto m = qMsg.front();
         qMsg.pop();
+        lk.unlock();
         handle(m);
+        std::cout << std::this_thread::get_id() << " thread STOPPED! " << std::endl;
     }
 
 protected:
@@ -128,23 +144,13 @@ public:
         list_worker.push_back(w);
     }
 
-
-    void work(IbaseClass *handler)
-    {
-        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
-        auto m = msgs.front();
-        msgs.pop();
-        handler->handle(m);
-    }
-
     void flush(void)
     {
         if (vs.size() == 0)
             return;
 
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
-        msgs.push(ht);
-//        for (const auto &h : list_worker) { }
+        notify(ht);
 
         vs.clear();
         time_first_chunk = 0;
@@ -215,8 +221,8 @@ void start_threads(void)
 
 int main(int argc, char ** argv)
 {
-    printer printerHandler;
-    saver saverHandler;
+    printer printerHandler(1);
+    saver saverHandler(2);
 
     if (argc != 2)
     {
