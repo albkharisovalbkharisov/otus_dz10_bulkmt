@@ -13,8 +13,6 @@
 #include <queue>
 #include <thread>
 
-#define SAVE_EACH_BULK_TO_SEPARATE_FILE 1
-
 /**
  *                           interface, singleton
  *                          +---------------------+
@@ -39,25 +37,28 @@ using vector_string = std::vector<std::string>;
 class IbaseClass
 {
 public:
+    static std::queue<vector_string> q;
+    std::vector<std::thread> vThread;
     using type_to_handle = struct {
         const vector_string &vs;
         const std::time_t t;
     };
 
-    virtual void handle(const type_to_handle &ht) = 0;
-
-    void dowork(void)
+    IbaseClass() = delete;
+    IbaseClass(size_t threads)
     {
-        std::unique_lock<std::mutex> lk(cv_m);
-        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
-        cv.wait(lk, [&q](){ return !q.empty(); });
-        auto m = q.front();
-        q.pop();
-        handle(m);
-        lk.unlock();
+        vThread.push_back(std::thread(work));
 
-        std::cout << std::this_thread::get_id() << q.size() << " pop " << m << std::endl;
     }
+
+    void work(void)
+    {
+        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
+        auto m = qMsg.front();
+        qMsg.pop();
+        handle(m);
+    }
+
 protected:
     std::string output_string_make(const vector_string &vs)
     {
@@ -76,7 +77,7 @@ protected:
 };
 
 
-class saver : public IbaseClass, public bulk_worker
+class saver : public IbaseClass
 {
 public:
     void handle(const type_to_handle &ht) override
@@ -90,8 +91,9 @@ public:
     }
 };
 
-class printer : public IbaseClass, public bulk_worker
+class printer : public IbaseClass
 {
+public:
     void handle(const type_to_handle &ht) override
     {
         std::cout << output_string_make(ht.vs);
@@ -100,11 +102,19 @@ class printer : public IbaseClass, public bulk_worker
 
 class bulk : public IbaseTerminator
 {
+    struct worker
+    {
+        std::thread thread;
+        std::string name;
+    };
+
     const size_t bulk_size;
     vector_string vs;
-    std::vector<std::tuple<IbaseClass *, std::thread *>> lHandler;
+    std::vector<worker> list_worker;
     size_t brace_cnt;
     std::time_t time_first_chunk;
+
+    std::queue<IbaseClass::type_to_handle> msgs;
 
 public:
     bulk(size_t size) : bulk_size(size), brace_cnt(0), time_first_chunk(0)
@@ -112,9 +122,19 @@ public:
         vs.reserve(bulk_size);
     }
 
-    void add_handler(IbaseClass &handler)
+    void add_handler(IbaseClass &handler, std::string &name)
     {
-        lHandler.push_back(&handler, new(std::thread));
+        worker w{std::thread(&work, this, &handler), name};
+        list_worker.push_back(w);
+    }
+
+
+    void work(IbaseClass *handler)
+    {
+        std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
+        auto m = msgs.front();
+        msgs.pop();
+        handler->handle(m);
     }
 
     void flush(void)
@@ -123,73 +143,20 @@ public:
             return;
 
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
-        for (const auto &h : lHandler) {
-            h->dowork(ht);
-        }
+        msgs.push(ht);
+//        for (const auto &h : list_worker) { }
 
         vs.clear();
-#if (SAVE_EACH_BULK_TO_SEPARATE_FILE == 1)
         time_first_chunk = 0;
-#endif  // (SAVE_EACH_BULK_TO_SEPARATE_FILE == 1)
     }
 
-    void add(std::string &&s)
-    {
-        // remembering first block coming can be done with "static" variable
-        // inside this function (see commit b51ab33), but it's not quite
-        // correct, because otherwise we can have only one "time_first_chunk"
-        // variable for all bulk class instances
-        if (time_first_chunk == 0)
-            time_first_chunk = std::time(0);
-        vs.push_back(s);
-    }
-
-    void signal_callback_handler(int signum)
-    {
-        if ((signum == SIGINT) || (signum == SIGTERM))
-            flush();
-    }
-
-    bool is_full(void) { return vs.size() >= bulk_size; }
-    bool is_empty(void) { return vs.size() == 0; }
-    ~bulk(void) { flush(); }
-
-    friend std::istream& operator>>(std::istream&, bulk&);
+    void add(std::string &s);
+    void signal_callback_handler(int signum);
+    bool is_full(void);
+    bool is_empty(void);
+    void parse_line(std::string &line);
+    ~bulk(void) { flush(); /*TODO: add free threads*/ }
 };
-
-std::istream& operator>>(std::istream& is, bulk& this_)
-{
-    std::string s;
-    std::getline(is, s);
-
-    if (s == "{")
-    {
-        if (!this_.is_empty() && (this_.brace_cnt == 0))
-            this_.flush();
-        ++this_.brace_cnt;
-        return is;
-    }
-    else if (s == "}")
-    {
-        if (this_.brace_cnt > 0)
-        {
-            --this_.brace_cnt;
-            if (this_.brace_cnt == 0)
-            {
-                this_.flush();
-                return is;
-            }
-        }
-    }
-    else
-        this_.add(std::move(s));
-
-    if (this_.is_full() && !this_.brace_cnt)
-        this_.flush();
-
-    return is;
-}
-
 
 
 #if 0
@@ -283,11 +250,62 @@ int main(int argc, char ** argv)
     // handle SIGINT, SIGTERM
     terminator::getInstance().add_signal_handler(b);
 
-    while (1)
+    for(std::string line; std::getline(std::cin, line);)
     {
-        std::cin >> b;
+        b.parse_line(line);
     }
 
     return 0;
+}
+
+void bulk::parse_line(std::string &line)
+{
+    if (line == "{")
+    {
+        if (!is_empty() && (brace_cnt == 0))
+            flush();
+        ++brace_cnt;
+        return;
+    }
+    else if (line == "}")
+    {
+        if (brace_cnt > 0)
+        {
+            --brace_cnt;
+            if (brace_cnt == 0)
+            {
+                flush();
+                return;
+            }
+        }
+    }
+    else
+        add(line);
+
+    if (is_full() && !brace_cnt)
+        flush();
+}
+
+void bulk::add(std::string &s)
+{
+    if (time_first_chunk == 0)
+        time_first_chunk = std::time(0);
+    vs.push_back(s);
+}
+
+void bulk::signal_callback_handler(int signum)
+{
+    if ((signum == SIGINT) || (signum == SIGTERM))
+        flush();
+}
+
+bool bulk::is_full(void)
+{
+    return vs.size() >= bulk_size;
+}
+
+bool bulk::is_empty(void)
+{
+    return vs.size() == 0;
 }
 
