@@ -37,65 +37,78 @@ using vector_string = std::vector<std::string>;
 class IbaseClass
 {
 public:
-    std::condition_variable cv;
-    std::mutex cv_m;
-    std::queue<vector_string> qMsg;
-
-    std::vector<std::thread> vThread;
-    size_t threads;
     using type_to_handle = struct {
         const vector_string &vs;
         const std::time_t t;
     };
+    std::condition_variable cv;
+    std::mutex cv_m;
+    std::queue<type_to_handle> qMsg;
+
+    std::vector<std::thread> vThread;
+    size_t threads;
 
     IbaseClass(size_t threads = 1) : threads(threads) {}
+    virtual ~IbaseClass(void)
+    {
+        std::cout << "virtual ~IbaseClass()" << std::endl;
+//        for (auto &t : vThread)
+    }
 
     void start_threads(void)
     {
         for (size_t i = 0; i < threads; ++i)
-            vThread.push_back(std::thread(&work));
+            vThread.push_back(std::thread(&IbaseClass::work, this));
 //        for (auto &t : vThread)
 //            the_thread = std::thread(&work);
     }
 
     void notify(type_to_handle &ht)
     {
-        qMsg.push_back(ht);
+        qMsg.push(ht);
     }
 
+    virtual void handle(const type_to_handle &ht)
+    {
+        (void) ht;
+        throw;
+    }
     void work(void)
     {
         std::unique_lock<std::mutex> lk(cv_m);
         std::cout << std::this_thread::get_id() << " thread started! " << std::endl;
-        cv.wait(lk, [&q](){ return !qMsg.empty(); });
+        cv.wait(lk, [this](){ return !this->qMsg.empty(); });
         auto m = qMsg.front();
         qMsg.pop();
         lk.unlock();
+        std::cout << std::this_thread::get_id() << " thread handled! " << std::endl;
         handle(m);
         std::cout << std::this_thread::get_id() << " thread STOPPED! " << std::endl;
     }
 
 protected:
-    std::string output_string_make(const vector_string &vs)
-    {
-        bool first = true;
-        std::string s("bulk: ");
-        for (const auto &si : vs) {
-            if (!first)
-                s += ", ";
-            else
-                first = false;
-            s += si;
-        }
-        s += '\n';
-        return s;
-    }
+    std::string output_string_make(const vector_string &vs);
 };
 
+std::string IbaseClass::output_string_make(const vector_string &vs)
+{
+    bool first = true;
+    std::string s("bulk: ");
+    for (const auto &si : vs) {
+        if (!first)
+            s += ", ";
+        else
+            first = false;
+        s += si;
+    }
+    s += '\n';
+    return s;
+}
 
 class saver : public IbaseClass
 {
 public:
+    saver(size_t threads = 1) : IbaseClass(threads) {}
     void handle(const type_to_handle &ht) override
     {
         std::string filename = "bulk" + std::to_string(ht.t) + ".log";
@@ -105,32 +118,31 @@ public:
         fs << output_string_make(ht.vs);
         fs.close();
     }
+    ~saver() {
+        std::cout << "~saver()" << std::endl;
+    }
 };
 
 class printer : public IbaseClass
 {
 public:
+    printer(size_t threads = 1) : IbaseClass(threads) {}
     void handle(const type_to_handle &ht) override
     {
         std::cout << output_string_make(ht.vs);
+    }
+    ~printer() {
+        std::cout << "~printer()" << std::endl;
     }
 };
 
 class bulk : public IbaseTerminator
 {
-    struct worker
-    {
-        std::thread thread;
-        std::string name;
-    };
-
     const size_t bulk_size;
     vector_string vs;
-    std::vector<worker> list_worker;
+    std::list<IbaseClass *> lHandler;
     size_t brace_cnt;
     std::time_t time_first_chunk;
-
-    std::queue<IbaseClass::type_to_handle> msgs;
 
 public:
     bulk(size_t size) : bulk_size(size), brace_cnt(0), time_first_chunk(0)
@@ -138,10 +150,9 @@ public:
         vs.reserve(bulk_size);
     }
 
-    void add_handler(IbaseClass &handler, std::string &name)
+    void add_handler(IbaseClass &handler)
     {
-        worker w{std::thread(&work, this, &handler), name};
-        list_worker.push_back(w);
+        lHandler.push_back(&handler);
     }
 
     void flush(void)
@@ -150,7 +161,9 @@ public:
             return;
 
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
-        notify(ht);
+        for (const auto &h : lHandler) {
+            h->notify(ht);
+        }
 
         vs.clear();
         time_first_chunk = 0;
@@ -230,8 +243,6 @@ int main(int argc, char ** argv)
         return -4;
     }
 
-//    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
-    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
     size_t j = 0;
     std::string arg = argv[1];
     try {
@@ -252,6 +263,8 @@ int main(int argc, char ** argv)
     class bulk b{j};
     b.add_handler(printerHandler);
     b.add_handler(saverHandler);
+    printerHandler.start_threads();
+    saverHandler.start_threads();
 
     // handle SIGINT, SIGTERM
     terminator::getInstance().add_signal_handler(b);

@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.5)
 
 project(bulkmt VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
 
+set(CMAKE_CXX_STANDARD 14)
+
+find_package(Threads)
+
 add_executable(bulkmt bulkmt.cpp)
+
 add_library(terminator terminator.cpp)
 
 set_target_properties(bulkmt terminator PROPERTIES
@@ -12,8 +17,10 @@ set_target_properties(bulkmt terminator PROPERTIES
 )
 
 target_link_libraries(bulkmt
+    ${CMAKE_THREAD_LIBS_INIT}
     terminator
 )
+
 
 install(TARGETS bulkmt RUNTIME DESTINATION bin)
 
