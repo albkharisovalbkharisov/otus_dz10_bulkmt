@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <vector>
 #include <list>
@@ -38,7 +39,11 @@ class IbaseClass
 {
 public:
     using type_to_handle = struct {
-        const vector_string &vs;
+    // send by copy, not by ref, because we do things asynchronically
+    // and main thread is cleared vector_string right after thread
+    // notification. Or it should wait all other tasks, which is
+    // quite dummy in multithread system.
+        const vector_string vs;
         const std::time_t t;
     };
     std::condition_variable cv;
@@ -52,20 +57,20 @@ public:
     virtual ~IbaseClass(void)
     {
         std::cout << "virtual ~IbaseClass()" << std::endl;
-//        for (auto &t : vThread)
     }
 
     void start_threads(void)
     {
         for (size_t i = 0; i < threads; ++i)
             vThread.push_back(std::thread(&IbaseClass::work, this));
-//        for (auto &t : vThread)
-//            the_thread = std::thread(&work);
     }
 
     void notify(type_to_handle &ht)
     {
+        for (auto &a : ht.vs)
+            std::cout << a << std::endl;
         qMsg.push(ht);
+        cv.notify_one();
     }
 
     virtual void handle(const type_to_handle &ht)
@@ -75,15 +80,16 @@ public:
     }
     void work(void)
     {
-        std::unique_lock<std::mutex> lk(cv_m);
         std::cout << std::this_thread::get_id() << " thread started! " << std::endl;
-        cv.wait(lk, [this](){ return !this->qMsg.empty(); });
-        auto m = qMsg.front();
-        qMsg.pop();
-        lk.unlock();
-        std::cout << std::this_thread::get_id() << " thread handled! " << std::endl;
-        handle(m);
-        std::cout << std::this_thread::get_id() << " thread STOPPED! " << std::endl;
+        while(1) {
+            std::unique_lock<std::mutex> lk(cv_m);
+            cv.wait(lk, [this](){ return !this->qMsg.empty(); });
+            auto m = qMsg.front();
+            qMsg.pop();
+            lk.unlock();
+            std::cout << std::this_thread::get_id() << " thread handled! " << std::endl;
+            handle(m);
+        }
     }
 
 protected:
@@ -105,13 +111,21 @@ std::string IbaseClass::output_string_make(const vector_string &vs)
     return s;
 }
 
+using namespace std::chrono;
 class saver : public IbaseClass
 {
 public:
     saver(size_t threads = 1) : IbaseClass(threads) {}
     void handle(const type_to_handle &ht) override
     {
-        std::string filename = "bulk" + std::to_string(ht.t) + ".log";
+        std::hash<std::thread::id> hash_thread_id;
+//        auto thread_id = std::this_thread::get_id();
+//        milliseconds ms = duration_cast< milliseconds >(
+//            system_clock::now().time_since_epoch()
+//        );
+
+        size_t hash = hash_thread_id(std::this_thread::get_id());// ^ std::hash<milliseconds>(ms);
+        std::string filename = "bulk" + std::to_string(ht.t) + "_" + std::to_string(hash) + ".log";
 
         std::fstream fs;
         fs.open (filename, std::fstream::in | std::fstream::out | std::fstream::app);
@@ -164,7 +178,7 @@ public:
         for (const auto &h : lHandler) {
             h->notify(ht);
         }
-
+        std::this_thread::sleep_for (std::chrono::seconds(1));// dbg_
         vs.clear();
         time_first_chunk = 0;
     }
@@ -234,6 +248,8 @@ void start_threads(void)
 
 int main(int argc, char ** argv)
 {
+    std::srand(time(NULL));
+
     printer printerHandler(1);
     saver saverHandler(2);
 
