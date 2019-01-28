@@ -35,6 +35,7 @@
 
 using vector_string = std::vector<std::string>;
 
+
 class IbaseClass
 {
 public:
@@ -46,14 +47,24 @@ public:
         const vector_string vs;
         const std::time_t t;
     };
+    using worker_type = struct {
+        std::thread thrd;
+        std::string thrd_name;
+
+    };
     std::condition_variable cv;
     std::mutex cv_m;
     std::queue<type_to_handle> qMsg;
 
     std::vector<std::thread> vThread;
-    size_t threads;
+    const size_t threads;
 
-    IbaseClass(size_t threads = 1) : threads(threads) {}
+    template<typename ...Names>
+    IbaseClass(Names... names) : threads(sizeof...(Names)) {
+//        int dummy[sizeof...(Names)] = { (std::cout << names, 0)... };
+        type
+    }
+//    IbaseClass(size_t threads = 1) : threads(threads) {}
     virtual ~IbaseClass(void)
     {
         std::cout << "virtual ~IbaseClass()" << std::endl;
@@ -67,8 +78,6 @@ public:
 
     void notify(type_to_handle &ht)
     {
-        for (auto &a : ht.vs)
-            std::cout << a << std::endl;
         qMsg.push(ht);
         cv.notify_one();
     }
@@ -140,7 +149,9 @@ public:
 class printer : public IbaseClass
 {
 public:
-    printer(size_t threads = 1) : IbaseClass(threads) {}
+    template<typename ...Names>
+    printer(Names... names) : IbaseClass(names...) {}
+//    printer(size_t threads = 1) : IbaseClass(threads) {}
     void handle(const type_to_handle &ht) override
     {
         std::cout << output_string_make(ht.vs);
@@ -250,7 +261,12 @@ int main(int argc, char ** argv)
 {
     std::srand(time(NULL));
 
-    printer printerHandler(1);
+    IbaseClass base("123 ", "456");
+    printer printerHandler("111", "222");
+    return 0;
+
+#if 0
+    printer printerHandler(2);
     saver saverHandler(2);
 
     if (argc != 2)
@@ -285,12 +301,16 @@ int main(int argc, char ** argv)
     // handle SIGINT, SIGTERM
     terminator::getInstance().add_signal_handler(b);
 
-    for(std::string line; std::getline(std::cin, line);)
-    {
-        b.parse_line(line);
+    try {
+        for(std::string line; std::getline(std::cin, line);)
+        {
+            b.parse_line(line);
+        }
+    } catch (std::exception& e) {
+        std::cout << "EXCEPTION!!!" << e.what() << std::endl;
     }
-
     return 0;
+#endif
 }
 
 void bulk::parse_line(std::string &line)
