@@ -144,12 +144,8 @@ public:
     void handle(const type_to_handle &ht) override
     {
         std::hash<std::thread::id> hash_thread_id;
-//        auto thread_id = std::this_thread::get_id();
-//        milliseconds ms = duration_cast< milliseconds >(
-//            system_clock::now().time_since_epoch()
-//        );
 
-        size_t hash = hash_thread_id(std::this_thread::get_id());// ^ std::hash<milliseconds>(ms);
+        size_t hash = hash_thread_id(std::this_thread::get_id()) ^ std::hash<int>()(std::rand());
         std::string filename = "bulk" + std::to_string(ht.t) + "_" + std::to_string(hash) + ".log";
 
         std::fstream fs;
@@ -205,7 +201,7 @@ public:
         for (const auto &h : lHandler) {
             h->notify(ht);
         }
-        std::this_thread::sleep_for (std::chrono::seconds(1));// dbg_
+//        std::this_thread::sleep_for (std::chrono::seconds(1));// dbg_
         vs.clear();
         time_first_chunk = 0;
     }
@@ -215,62 +211,10 @@ public:
     bool is_full(void);
     bool is_empty(void);
     void parse_line(std::string &line);
-    ~bulk(void) { flush(); /*TODO: add free threads*/ }
+    ~bulk(void) {
+        flush();
+    }
 };
-
-
-#if 0
-
-std::condition_variable cv;
-std::mutex cv_m;
-std::queue<std::string> msgs;
-
-void worker(std::queue<std::string> &q)
-{
-    std::unique_lock<std::mutex> lk(cv_m);
-    std::cout << std::this_thread::get_id() << " waiting... " << std::endl;
-    cv.wait(lk, [&q](){ return !q.empty(); });
-//    auto m = q.front();
-//    q.pop();
-    lk.unlock();
-
-    std::cout << std::this_thread::get_id() << q.size() << " pop " << m << std::endl;
-}
-
-void start_threads(void)
-{
-    std::thread t1(worker, std::ref(msgs)), t2(worker, std::ref(msgs)), t3(worker, std::ref(msgs));
-
-    {
-        std::lock_guard<std::mutex> lk(cv_m);
-        msgs.push("cmd1");
-        msgs.push("cmd2");
-    }
-    cv.notify_one();
-
-    {
-        std::lock_guard<std::mutex> lk(cv_m);
-        msgs.push("cmd3");
-        msgs.push("cmd4");
-    }
-    cv.notify_one();
-
-    t1.join();
-    t2.join();
-    t3.join();
-}
-
-
-
-//class bulk_worker
-//{
-//public:
-//    virtual void dowork(void);
-//};
-
-#endif  // 0
-
-
 
 
 int main(int argc, char ** argv)
@@ -325,8 +269,7 @@ int main(int argc, char ** argv)
     terminator::getInstance().add_signal_handler(b);
 
     try {
-        for(std::string line; std::getline(std::cin, line);)
-        {
+        for(std::string line; std::getline(std::cin, line); ) {
             b.parse_line(line);
         }
     } catch (std::exception& e) {
