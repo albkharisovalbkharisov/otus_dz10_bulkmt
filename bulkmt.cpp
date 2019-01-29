@@ -70,6 +70,7 @@ public:
     {
         std::cout << "virtual ~IbaseClass() : join..." << std::endl;
         exit = true;
+        cv.notify_all();
         for (auto &a : vThread) {
             a.thread.join();
         }
@@ -274,6 +275,7 @@ void start_threads(void)
 
 int main(int argc, char ** argv)
 {
+#if 0
     (void) argc;
     (void) argv;
     std::srand(time(NULL));
@@ -286,9 +288,9 @@ int main(int argc, char ** argv)
     std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     return 0;
 
-#if 0
-    printer printerHandler(2);
-    saver saverHandler(2);
+#else
+    printer printerHandler("_print1");
+    saver saverHandler("_saver1", "_saver2");
 
     if (argc != 2)
     {
