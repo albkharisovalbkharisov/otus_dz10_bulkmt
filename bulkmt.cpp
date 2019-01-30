@@ -66,15 +66,26 @@ public:
             vThread.emplace(it++, std::thread(), s);
     }
 
-    virtual ~IbaseClass(void)
+    void terminate(void)
     {
-        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
+        std::cout << "terminate() : join..." << std::endl;
         exit = true;
         cv.notify_all();
         for (auto &a : vThread) {
             a.thread.join();
         }
-        std::cout << "virtual ~IbaseClass() : all joined" << std::endl;
+        std::cout << "terminate() : all joined" << std::endl;
+    }
+
+    virtual ~IbaseClass(void)
+    {
+        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
+//        exit = true;
+//        cv.notify_all();
+//        for (auto &a : vThread) {
+//            a.thread.join();
+//        }
+//        std::cout << "virtual ~IbaseClass() : all joined" << std::endl;
     }
 
     void start_threads(void)
@@ -275,6 +286,8 @@ int main(int argc, char ** argv)
     } catch (std::exception& e) {
         std::cout << "EXCEPTION!!!" << e.what() << std::endl;
     }
+    printerHandler.terminate();
+    saverHandler.terminate();
     return 0;
 #endif
 }
