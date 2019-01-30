@@ -13,6 +13,35 @@
 #include <condition_variable>
 #include <queue>
 #include <thread>
+#include <atomic>
+
+template<bool count_lines_too>
+class dbg_counter
+{
+    std::atomic<size_t> line_counter;
+    std::atomic<size_t> cmd_counter;
+    std::atomic<size_t> bulk_counter;
+public:
+    dbg_counter(void) : line_counter(0), cmd_counter(0), bulk_counter(0) {}
+    void dbg_line_inc(size_t i = 1) { line_counter += i; }
+    void dbg_cmd_inc(size_t i = 1)  { cmd_counter  += i; }
+    void dbg_bulk_inc(size_t i = 1) { bulk_counter += i; }
+
+    auto dbg_counters_get(void)
+    {
+        return std::make_tuple(line_counter, cmd_counter, bulk_counter);
+    }
+
+    void dbg_print_counters(const std::string &thread_name) const
+    {
+        std::cout << "thread " << thread_name << ": ";
+        if (count_lines_too)
+            std::cout << line_counter << " lines, ";
+        std::cout << cmd_counter << " commands, ";
+        std::cout << bulk_counter << " bulks" << std::endl;
+    }
+};
+
 
 /**
  *                           interface, singleton
@@ -43,7 +72,7 @@ struct worker
     worker(std::thread t, const char *s)  : thread(std::move(t)), name(s) {}
 };
 
-class IbaseClass
+class IbaseClass : public dbg_counter<false>
 {
 public:
     using type_to_handle = struct {
@@ -68,18 +97,20 @@ public:
 
     void terminate(void)
     {
-        std::cout << "terminate() : join..." << std::endl;
+//        std::cout << "terminate() : join..." << std::endl;
         exit = true;
         cv.notify_all();
         for (auto &a : vThread) {
             a.thread.join();
         }
-        std::cout << "terminate() : all joined" << std::endl;
+//        std::cout << "terminate() : all joined" << std::endl;
     }
 
     virtual ~IbaseClass(void)
     {
-        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
+        for (const auto &a : vThread)
+            dbg_print_counters(a.name);
+//        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
 //        exit = true;
 //        cv.notify_all();
 //        for (auto &a : vThread) {
@@ -91,7 +122,7 @@ public:
     void start_threads(void)
     {
         for (auto &t : vThread)
-            t.thread = std::thread(&IbaseClass::work, this, std::ref(t.name));   // move thread is OK
+            t.thread = std::thread(&IbaseClass::work, this, std::ref(t.name));   // moving thread is OK
     }
 
     void notify(type_to_handle &ht)
@@ -109,22 +140,24 @@ public:
     {
         {
             std::lock_guard<std::mutex>l(cv_m);
-            std::cout << name << " thread started! " << std::endl;
+//            std::cout << name << " thread started! " << std::endl;
         }
         while(!exit) {
             std::unique_lock<std::mutex> lk(cv_m);
             cv.wait(lk, [this](){ return !this->qMsg.empty() || exit; });
-            if (exit) break;
+            if (exit && qMsg.empty()) break;
             auto m = qMsg.front();
             qMsg.pop();
             lk.unlock();
+            dbg_bulk_inc();
+            dbg_cmd_inc(m.vs.size());
             std::cout << name << " thread handled! " << std::endl;
             handle(m);
         }
-        {
-            std::lock_guard<std::mutex>l(cv_m);
-            std::cout << name << " thread exit! " << std::endl;
-        }
+//        {
+//            std::lock_guard<std::mutex>l(cv_m);
+//            std::cout << name << " thread exit! " << std::endl;
+//        }
     }
 
 protected:
@@ -165,7 +198,8 @@ public:
         fs.close();
     }
     ~saver() {
-        std::cout << "~saver()" << std::endl;
+        terminate();
+//        std::cout << "~saver()" << std::endl;
     }
 };
 
@@ -177,14 +211,16 @@ public:
 //    printer(size_t threads = 1) : IbaseClass(threads) {}
     void handle(const type_to_handle &ht) override
     {
+//        std::this_thread::sleep_for(std::chrono::milliseconds(3000));
         std::cout << output_string_make(ht.vs);
     }
     ~printer() {
-        std::cout << "~printer()" << std::endl;
+        terminate();
+//        std::cout << "~printer()" << std::endl;
     }
 };
 
-class bulk : public IbaseTerminator
+class bulk : public IbaseTerminator, public dbg_counter<true>
 {
     const size_t bulk_size;
     vector_string vs;
@@ -208,6 +244,7 @@ public:
         if (vs.size() == 0)
             return;
 
+        dbg_bulk_inc();
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
         for (const auto &h : lHandler) {
             h->notify(ht);
@@ -224,8 +261,10 @@ public:
     void parse_line(std::string &line);
     ~bulk(void) {
         flush();
+        dbg_print_counters(std::string("main"));
     }
 };
+
 
 
 int main(int argc, char ** argv)
@@ -245,7 +284,7 @@ int main(int argc, char ** argv)
 
 #else
     printer printerHandler("_print1");
-    saver saverHandler("_saver1", "_saver2");
+//    saver saverHandler("_saver1", "_saver2");
 
     if (argc != 2)
     {
@@ -272,9 +311,9 @@ int main(int argc, char ** argv)
 
     class bulk b{j};
     b.add_handler(printerHandler);
-    b.add_handler(saverHandler);
+//    b.add_handler(saverHandler);
     printerHandler.start_threads();
-    saverHandler.start_threads();
+//    saverHandler.start_threads();
 
     // handle SIGINT, SIGTERM
     terminator::getInstance().add_signal_handler(b);
@@ -286,14 +325,20 @@ int main(int argc, char ** argv)
     } catch (std::exception& e) {
         std::cout << "EXCEPTION!!!" << e.what() << std::endl;
     }
-    printerHandler.terminate();
-    saverHandler.terminate();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    std::cout << std::endl;
+
+//    printerHandler.dbg_print();
+//    saverHandler.dbg_print_counters();
+
+
     return 0;
 #endif
 }
 
 void bulk::parse_line(std::string &line)
 {
+    dbg_line_inc();
     if (line == "{")
     {
         if (!is_empty() && (brace_cnt == 0))
@@ -322,6 +367,7 @@ void bulk::parse_line(std::string &line)
 
 void bulk::add(std::string &s)
 {
+    dbg_cmd_inc();
     if (time_first_chunk == 0)
         time_first_chunk = std::time(0);
     vs.push_back(s);
@@ -342,4 +388,6 @@ bool bulk::is_empty(void)
 {
     return vs.size() == 0;
 }
+
+// todo: read desctructor order
 
