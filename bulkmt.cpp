@@ -84,6 +84,7 @@ public:
     std::queue<type_to_handle> qMsg;
     std::vector<worker> vThread;
     bool exit;
+    virtual void handle(const type_to_handle &ht) { (void) ht; throw; }
 
     template<typename ...Names>
     IbaseClass(Names... names) : exit(false)
@@ -131,18 +132,13 @@ public:
         cv.notify_one();
     }
 
-    virtual void handle(const type_to_handle &ht)
-    {
-        (void) ht;
-        throw;
-    }
     void work(std::string &name)
     {
         {
             std::lock_guard<std::mutex>l(cv_m);
 //            std::cout << name << " thread started! " << std::endl;
         }
-        while(!exit) {
+        while(1) {
             std::unique_lock<std::mutex> lk(cv_m);
             cv.wait(lk, [this](){ return !this->qMsg.empty() || exit; });
             if (exit && qMsg.empty()) break;
@@ -152,12 +148,8 @@ public:
             dbg_bulk_inc();
             dbg_cmd_inc(m.vs.size());
             std::cout << name << " thread handled! " << std::endl;
-            handle(m);
+            this->handle(m);
         }
-//        {
-//            std::lock_guard<std::mutex>l(cv_m);
-//            std::cout << name << " thread exit! " << std::endl;
-//        }
     }
 
 protected:
@@ -266,76 +258,6 @@ public:
 };
 
 
-
-int main(int argc, char ** argv)
-{
-#if 0
-    (void) argc;
-    (void) argv;
-    std::srand(time(NULL));
-
-    saver saverHandler("_saver1", "_saver2", "_saver3");
-    printer printerHandler("_print");
-
-    printerHandler.start_threads();
-    saverHandler.start_threads();
-    std::this_thread::sleep_for(std::chrono::milliseconds(3000));
-    return 0;
-
-#else
-    printer printerHandler("_print1");
-//    saver saverHandler("_saver1", "_saver2");
-
-    if (argc != 2)
-    {
-        std::cerr << "Incorrect number of arguments: " << argc - 1 << ", expected: 1" << std::endl;
-        return -4;
-    }
-
-    size_t j = 0;
-    std::string arg = argv[1];
-    try {
-        std::size_t pos;
-        j = std::stoi(arg, &pos);
-        if (pos < arg.size()) {
-            std::cerr << "Trailing characters after number: " << arg << '\n';
-            return -3;
-        }
-    } catch (std::invalid_argument const &ex) {
-        std::cerr << "Invalid number: " << arg << '\n';
-        return -1;
-    } catch (std::out_of_range const &ex) {
-        std::cerr << "Number out of range: " << arg << '\n';
-        return -2;
-    }
-
-    class bulk b{j};
-    b.add_handler(printerHandler);
-//    b.add_handler(saverHandler);
-    printerHandler.start_threads();
-//    saverHandler.start_threads();
-
-    // handle SIGINT, SIGTERM
-    terminator::getInstance().add_signal_handler(b);
-
-    try {
-        for(std::string line; std::getline(std::cin, line); ) {
-            b.parse_line(line);
-        }
-    } catch (std::exception& e) {
-        std::cout << "EXCEPTION!!!" << e.what() << std::endl;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    std::cout << std::endl;
-
-//    printerHandler.dbg_print();
-//    saverHandler.dbg_print_counters();
-
-
-    return 0;
-#endif
-}
-
 void bulk::parse_line(std::string &line)
 {
     dbg_line_inc();
@@ -389,5 +311,55 @@ bool bulk::is_empty(void)
     return vs.size() == 0;
 }
 
-// todo: read desctructor order
+
+
+int main(int argc, char ** argv)
+{
+    printer printerHandler("_print1");
+    saver saverHandler("_saver1", "_saver2");
+
+    if (argc != 2)
+    {
+        std::cerr << "Incorrect number of arguments: " << argc - 1 << ", expected: 1" << std::endl;
+        return -4;
+    }
+
+    size_t j = 0;
+    std::string arg = argv[1];
+    try {
+        std::size_t pos;
+        j = std::stoi(arg, &pos);
+        if (pos < arg.size()) {
+            std::cerr << "Trailing characters after number: " << arg << '\n';
+            return -3;
+        }
+    } catch (std::invalid_argument const &ex) {
+        std::cerr << "Invalid number: " << arg << '\n';
+        return -1;
+    } catch (std::out_of_range const &ex) {
+        std::cerr << "Number out of range: " << arg << '\n';
+        return -2;
+    }
+
+    class bulk b{j};
+    b.add_handler(printerHandler);
+    b.add_handler(saverHandler);
+    printerHandler.start_threads();
+    saverHandler.start_threads();
+
+    // handle SIGINT, SIGTERM
+    terminator::getInstance().add_signal_handler(b);
+
+    try {
+        for(std::string line; std::getline(std::cin, line); ) {
+            b.parse_line(line);
+        }
+    } catch (std::exception& e) {
+        std::cout << "EXCEPTION!!!" << e.what() << std::endl;
+    }
+//    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+//    std::cout << std::endl;
+
+    return 0;
+}
 
