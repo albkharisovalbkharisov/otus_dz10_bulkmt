@@ -15,7 +15,7 @@
 #include <thread>
 #include <atomic>
 
-template<bool count_lines_too>
+template<bool count_lines_too = false>
 class dbg_counter
 {
     std::atomic<size_t> line_counter;
@@ -23,16 +23,24 @@ class dbg_counter
     std::atomic<size_t> bulk_counter;
 public:
     dbg_counter(void) : line_counter(0), cmd_counter(0), bulk_counter(0) {}
-    void dbg_line_inc(size_t i = 1) { line_counter += i; }
-    void dbg_cmd_inc(size_t i = 1)  { cmd_counter  += i; }
-    void dbg_bulk_inc(size_t i = 1) { bulk_counter += i; }
-
-    auto dbg_counters_get(void)
+    dbg_counter(const dbg_counter &&that)
     {
-        return std::make_tuple(line_counter, cmd_counter, bulk_counter);
+        this->line_counter.store(that.line_counter);
+        this->cmd_counter.store(that.cmd_counter);
+        this->bulk_counter.store(that.bulk_counter);
+    }
+    dbg_counter(const dbg_counter &that)
+    {
+        this->line_counter.store(that.line_counter);
+        this->cmd_counter.store(that.cmd_counter);
+        this->bulk_counter.store(that.bulk_counter);
     }
 
-    void dbg_print_counters(const std::string &thread_name) const
+    void line_inc(size_t i = 1) { line_counter += i; }
+    void cmd_inc(size_t i = 1)  { cmd_counter  += i; }
+    void bulk_inc(size_t i = 1) { bulk_counter += i; }
+
+    void print_counters(const std::string &thread_name) const
     {
         std::cout << "thread " << thread_name << ": ";
         if (count_lines_too)
@@ -68,11 +76,12 @@ struct worker
 {
     std::thread thread;
     std::string name;
-    worker(std::thread t, std::string &s) : thread(std::move(t)), name(s) {}
-    worker(std::thread t, const char *s)  : thread(std::move(t)), name(s) {}
+    dbg_counter<false> dbg;
+    worker(std::thread t, std::string &s, dbg_counter<false> &dbg) : thread(std::move(t)), name(s), dbg(dbg) {}
+    worker(std::thread t, const char *s, dbg_counter<false> &dbg)  : thread(std::move(t)), name(s), dbg(dbg) {}
 };
 
-class IbaseClass : public dbg_counter<false>
+class IbaseClass
 {
 public:
     using type_to_handle = struct {
@@ -93,7 +102,7 @@ public:
         vThread.reserve(sizeof...(Names));
         auto it = vThread.begin();
         for (auto &s : dummy)
-            vThread.emplace(it++, std::thread(), s);
+            vThread.emplace(it++, std::thread(), s, dbg_counter<false>());
     }
 
     void terminate(void)
@@ -110,7 +119,7 @@ public:
     virtual ~IbaseClass(void)
     {
         for (const auto &a : vThread)
-            dbg_print_counters(a.name);
+            a.dbg.print_counters(a.name);
 //        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
 //        exit = true;
 //        cv.notify_all();
@@ -122,8 +131,8 @@ public:
 
     void start_threads(void)
     {
-        for (auto &t : vThread)
-            t.thread = std::thread(&IbaseClass::work, this, std::ref(t.name));   // moving thread is OK
+        for (auto &w : vThread)
+            w.thread = std::thread(&IbaseClass::work, this, std::ref(w));   // moving thread is OK
     }
 
     void notify(type_to_handle &ht)
@@ -132,11 +141,11 @@ public:
         cv.notify_one();
     }
 
-    void work(std::string &name)
+    void work(struct worker &w)
     {
         {
             std::lock_guard<std::mutex>l(cv_m);
-//            std::cout << name << " thread started! " << std::endl;
+//            std::cout << w.name << " thread started! " << std::endl;
         }
         while(1) {
             std::unique_lock<std::mutex> lk(cv_m);
@@ -145,9 +154,9 @@ public:
             auto m = qMsg.front();
             qMsg.pop();
             lk.unlock();
-            dbg_bulk_inc();
-            dbg_cmd_inc(m.vs.size());
-            std::cout << name << " thread handled! " << std::endl;
+            w.dbg.bulk_inc();
+            w.dbg.cmd_inc(m.vs.size());
+//            std::cout << w.name << " thread handled! " << std::endl;
             this->handle(m);
         }
     }
@@ -236,7 +245,7 @@ public:
         if (vs.size() == 0)
             return;
 
-        dbg_bulk_inc();
+        bulk_inc();
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
         for (const auto &h : lHandler) {
             h->notify(ht);
@@ -253,14 +262,14 @@ public:
     void parse_line(std::string &line);
     ~bulk(void) {
         flush();
-        dbg_print_counters(std::string("main"));
+        print_counters(std::string("main"));
     }
 };
 
 
 void bulk::parse_line(std::string &line)
 {
-    dbg_line_inc();
+    line_inc();
     if (line == "{")
     {
         if (!is_empty() && (brace_cnt == 0))
@@ -289,7 +298,7 @@ void bulk::parse_line(std::string &line)
 
 void bulk::add(std::string &s)
 {
-    dbg_cmd_inc();
+    cmd_inc();
     if (time_first_chunk == 0)
         time_first_chunk = std::time(0);
     vs.push_back(s);
