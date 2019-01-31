@@ -23,19 +23,28 @@ class dbg_counter
     std::atomic<size_t> bulk_counter;
 public:
     dbg_counter(void) : line_counter(0), cmd_counter(0), bulk_counter(0) {}
-    dbg_counter(const dbg_counter &&that)
-    {
-        this->line_counter.store(that.line_counter);
-        this->cmd_counter.store(that.cmd_counter);
-        this->bulk_counter.store(that.bulk_counter);
-    }
     dbg_counter(const dbg_counter &that)
     {
         this->line_counter.store(that.line_counter);
         this->cmd_counter.store(that.cmd_counter);
         this->bulk_counter.store(that.bulk_counter);
     }
+/*
+    dbg_counter(const dbg_counter &&that)
+    {
+        this->line_counter.store(that.line_counter);
+        this->cmd_counter.store(that.cmd_counter);
+        this->bulk_counter.store(that.bulk_counter);
+    }
 
+    dbg_counter& operator=(dbg_counter &&that)
+    {
+        this->line_counter.store(that.line_counter);
+        this->cmd_counter.store(that.cmd_counter);
+        this->bulk_counter.store(that.bulk_counter);
+        return *this;
+    }
+*/
     void line_inc(size_t i = 1) { line_counter += i; }
     void cmd_inc(size_t i = 1)  { cmd_counter  += i; }
     void bulk_inc(size_t i = 1) { bulk_counter += i; }
@@ -77,8 +86,24 @@ struct worker
     std::thread thread;
     std::string name;
     dbg_counter<false> dbg;
-    worker(std::thread t, std::string &s, dbg_counter<false> &dbg) : thread(std::move(t)), name(s), dbg(dbg) {}
-    worker(std::thread t, const char *s, dbg_counter<false> &dbg)  : thread(std::move(t)), name(s), dbg(dbg) {}
+    worker(std::thread t, const char *s) : thread(std::move(t)), name(s) {}
+    worker(const char *s) : name(s) {}
+//    worker(std::thread t, std::string &s) : thread(std::move(t)), name(s) {}
+/*
+    worker(const worker &that)
+    {
+        thread = that.thread;
+        name = that.name;
+        dbg = that.dbg;
+    }
+    worker& operator=(worker &&that)
+    {
+        thread = std::move(that.thread);
+        name = std::move(that.name);
+        dbg = std::move(that.dbg);
+        return *this;
+    }
+*/
 };
 
 class IbaseClass
@@ -91,7 +116,7 @@ public:
     std::condition_variable cv;
     std::mutex cv_m;
     std::queue<type_to_handle> qMsg;
-    std::vector<worker> vThread;
+    std::list<worker> vThread;
     bool exit;
     virtual void handle(const type_to_handle &ht) { (void) ht; throw; }
 
@@ -99,10 +124,13 @@ public:
     IbaseClass(Names... names) : exit(false)
     {
         const char * dummy[] = {(const char*)(names)...};
-        vThread.reserve(sizeof...(Names));
-        auto it = vThread.begin();
+//        vThread.reserve(sizeof...(Names));
+//        worker w{std::thread(), std::string("123"), dbg_counter<false>()};
+//        auto it = vThread.begin();
         for (auto &s : dummy)
-            vThread.emplace(it++, std::thread(), s, dbg_counter<false>());
+//            vThread.push_back(&w);
+//            vThread.emplace(it++, std::thread(), s, dbg_counter<false>());
+            vThread.emplace_back(s);
     }
 
     void terminate(void)
@@ -160,25 +188,7 @@ public:
             this->handle(m);
         }
     }
-
-protected:
-    std::string output_string_make(const vector_string &vs);
 };
-
-std::string IbaseClass::output_string_make(const vector_string &vs)
-{
-    bool first = true;
-    std::string s("bulk: ");
-    for (const auto &si : vs) {
-        if (!first)
-            s += ", ";
-        else
-            first = false;
-        s += si;
-    }
-    s += '\n';
-    return s;
-}
 
 using namespace std::chrono;
 class saver : public IbaseClass
@@ -195,7 +205,9 @@ public:
 
         std::fstream fs;
         fs.open (filename, std::fstream::in | std::fstream::out | std::fstream::app);
-        fs << output_string_make(ht.vs);
+        for (auto &a : ht.vs)
+            fs << a;
+        fs << '\n';
         fs.close();
     }
     ~saver() {
@@ -218,6 +230,22 @@ public:
     ~printer() {
         terminate();
 //        std::cout << "~printer()" << std::endl;
+    }
+
+private:
+    std::string output_string_make(const vector_string &vs)
+    {
+        bool first = true;
+        std::string s("bulk: ");
+        for (const auto &si : vs) {
+            if (!first)
+                s += ", ";
+            else
+                first = false;
+            s += si;
+        }
+        s += '\n';
+        return s;
     }
 };
 
