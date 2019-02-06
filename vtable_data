@@ -1,0 +1,47 @@
+Vtable for printer2
+printer2::_ZTV8printer2: 5u entries
+0     (int (*)(...))0
+8     (int (*)(...))(& _ZTI8printer2)
+16    (int (*)(...))printer2::handle
+24    (int (*)(...))printer2::~printer2
+32    (int (*)(...))printer2::~printer2
+
+
+Vtable for IbaseClass
+IbaseClass::_ZTV10IbaseClass: 5u entries
+0     (int (*)(...))0
+8     (int (*)(...))(& _ZTI10IbaseClass)
+16    (int (*)(...))IbaseClass::handle
+24    (int (*)(...))IbaseClass::~IbaseClass
+32    (int (*)(...))IbaseClass::~IbaseClass
+
+
+
+Vtable for printer
+printer::_ZTV7printer: 5u entries
+0     (int (*)(...))0
+8     (int (*)(...))(& _ZTI7printer)
+16    (int (*)(...))printer::handle
+24    (int (*)(...))printer::~printer
+32    (int (*)(...))printer::~printer
+
+
+==============================================
+base terminator
+printer 1
+
+0x406898 : 0x402620
+0x4068a0 : 0x40264e
+0x4068a8 : 0x4026b6
+0x4068b0 : 0
+0x4068b8 : 0x406b20
+
+printer 2
+0x406870 : 0x40270a
+0x406878 : 0x402754
+0x406880 : 0x4027bc
+0x406888 : 0
+0x406890 : 0x406af8
+
+
+
