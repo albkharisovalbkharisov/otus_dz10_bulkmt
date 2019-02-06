@@ -57,6 +57,7 @@ public:
         std::cout << cmd_counter << " commands, ";
         std::cout << bulk_counter << " bulks" << std::endl;
     }
+    ~dbg_counter(void) { std::cout << "~dbg_counter() " << std::endl; }
 };
 
 
@@ -88,6 +89,7 @@ struct worker
     dbg_counter<false> dbg;
     worker(std::thread t, const char *s) : thread(std::move(t)), name(s) {}
     worker(const char *s) : name(s) {}
+    ~worker(void) { std::cout << "~worker()" << std::endl; }
 //    worker(std::thread t, std::string &s) : thread(std::move(t)), name(s) {}
 /*
     worker(const worker &that)
@@ -106,6 +108,20 @@ struct worker
 */
 };
 
+class test2
+{
+public:
+    test2(){ std::cout << "test2()" << std::endl; }
+    ~test2(){ std::cout << "~test2()" << std::endl; }
+};
+
+class test
+{
+public:
+    test(){ std::cout << "test()" << std::endl; }
+    ~test(){ std::cout << "~test()" << std::endl; }
+};
+
 class IbaseClass
 {
 public:
@@ -113,11 +129,13 @@ public:
         const vector_string vs;
         const std::time_t t;
     };
+    test test_;
     std::condition_variable cv;
     std::mutex cv_m;
     std::queue<type_to_handle> qMsg;
     std::list<worker> vThread;
-    bool exit;
+    std::atomic<bool> exit;
+    test2 test2_;
     virtual void handle(const type_to_handle &ht) { (void) ht; throw; }
 
     template<typename ...Names>
@@ -135,20 +153,31 @@ public:
 
     void terminate(void)
     {
-//        std::cout << "terminate() : join..." << std::endl;
+        std::cout << "terminate() : join..." << std::endl;
         exit = true;
+//        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        std::cout << "terminate() : notify..." << std::endl;
         cv.notify_all();
+//        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         for (auto &a : vThread) {
-            a.thread.join();
+            if (a.thread.joinable()){
+                a.thread.join();
+                std::cout << "terminate() : join..." << a.name << std::endl;
+            }
+            else
+                std::cout << "terminate() : join..." << a.name << " can't!" << std::endl;
         }
-//        std::cout << "terminate() : all joined" << std::endl;
+        std::cout << "terminate() : all joined" << std::endl;
     }
 
     virtual ~IbaseClass(void)
     {
+        std::cout << "~IbaseClass()" << std::endl;
+        terminate();
+        std::cout << "vThread.size() = " << vThread.size() << std::endl;
         for (const auto &a : vThread)
             a.dbg.print_counters(a.name);
-//        std::cout << "virtual ~IbaseClass() : join..." << std::endl;
+        std::cout << "~IbaseClass() after print" << std::endl;
 //        exit = true;
 //        cv.notify_all();
 //        for (auto &a : vThread) {
@@ -171,6 +200,7 @@ public:
 
     void work(struct worker &w)
     {
+            std::cout << w.name << " thread started! " << std::endl;
         {
             std::lock_guard<std::mutex>l(cv_m);
 //            std::cout << w.name << " thread started! " << std::endl;
@@ -179,6 +209,7 @@ public:
             std::unique_lock<std::mutex> lk(cv_m);
             cv.wait(lk, [this](){ return !this->qMsg.empty() || exit; });
             if (exit && qMsg.empty()) break;
+            std::cout << w.name << " got job! " << std::endl;
             auto m = qMsg.front();
             qMsg.pop();
             lk.unlock();
@@ -187,6 +218,7 @@ public:
 //            std::cout << w.name << " thread handled! " << std::endl;
             this->handle(m);
         }
+        std::cout << w.name << " ended! " << std::endl;
     }
 };
 
@@ -211,8 +243,8 @@ public:
         fs.close();
     }
     ~saver() {
-        terminate();
-//        std::cout << "~saver()" << std::endl;
+        std::cout << "~saver()" << std::endl;
+//        terminate();
     }
 };
 
@@ -228,8 +260,8 @@ public:
         std::cout << output_string_make(ht.vs);
     }
     ~printer() {
-        terminate();
-//        std::cout << "~printer()" << std::endl;
+        std::cout << "~printer()" << std::endl;
+//        terminate();
     }
 
 private:
@@ -249,7 +281,7 @@ private:
     }
 };
 
-class bulk : public IbaseTerminator, public dbg_counter<true>
+class bulk : public IbaseTerminator//, public dbg_counter<true>
 {
     const size_t bulk_size;
     vector_string vs;
@@ -273,7 +305,7 @@ public:
         if (vs.size() == 0)
             return;
 
-        bulk_inc();
+//        bulk_inc();
         IbaseClass::type_to_handle ht = {vs, time_first_chunk};
         for (const auto &h : lHandler) {
             h->notify(ht);
@@ -289,15 +321,15 @@ public:
     bool is_empty(void);
     void parse_line(std::string &line);
     ~bulk(void) {
-        flush();
-        print_counters(std::string("main"));
+//        flush();
+//        print_counters(std::string("main"));
     }
 };
 
 
 void bulk::parse_line(std::string &line)
 {
-    line_inc();
+//    line_inc();
     if (line == "{")
     {
         if (!is_empty() && (brace_cnt == 0))
@@ -326,7 +358,7 @@ void bulk::parse_line(std::string &line)
 
 void bulk::add(std::string &s)
 {
-    cmd_inc();
+//    cmd_inc();
     if (time_first_chunk == 0)
         time_first_chunk = std::time(0);
     vs.push_back(s);
@@ -352,8 +384,9 @@ bool bulk::is_empty(void)
 
 int main(int argc, char ** argv)
 {
+    try {
     printer printerHandler("_print1");
-    saver saverHandler("_saver1", "_saver2");
+//    saver saverHandler("_saver1", "_saver2");
 
     if (argc != 2)
     {
@@ -380,23 +413,23 @@ int main(int argc, char ** argv)
 
     class bulk b{j};
     b.add_handler(printerHandler);
-    b.add_handler(saverHandler);
+//    b.add_handler(saverHandler);
     printerHandler.start_threads();
-    saverHandler.start_threads();
+//    saverHandler.start_threads();
 
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
     // handle SIGINT, SIGTERM
     terminator::getInstance().add_signal_handler(b);
 
-    try {
-        for(std::string line; std::getline(std::cin, line); ) {
-            b.parse_line(line);
-        }
-    } catch (std::exception& e) {
-        std::cout << "EXCEPTION!!!" << e.what() << std::endl;
+    for(std::string line; std::getline(std::cin, line); ) {
+        b.parse_line(line);
     }
-//    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+//    ~b.bulk();
 //    std::cout << std::endl;
 
+    }
+    catch (std::exception &e) { std::cout << "CATCH WHAT???  " << e.what() << std::endl; }
     return 0;
 }
 
