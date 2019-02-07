@@ -129,8 +129,25 @@ public:
     saver(Names... names) : IbaseClass(names...) {}
     void handle(const type_to_handle &ht) override
     {
-        std::hash<std::thread::id> hash_thread_id;
+#if 1
+        // algorythm difficultifier \m/_
+        volatile long double array[20];
+        for (auto a : array)
+        {
+            if (a > 0)
+                a *= 29124123.512149124377;
+            else
+                a = 29124123.512149124377 + a * 12421938589.1235912385235;
+        }
+        for (int i = 0; i < 100000 ; ++i) {
+            for (auto a : array) {
+                a *= 1210240124091.12409192040124 * a * a;
+            }
+        }
+#endif  // 0
 
+        // invent name
+        std::hash<std::thread::id> hash_thread_id;
         size_t hash = hash_thread_id(std::this_thread::get_id()) ^ std::hash<int>()(std::rand());
         std::string filename = "bulk" + std::to_string(ht.t) + "_" + std::to_string(hash) + ".log";
 
@@ -210,7 +227,7 @@ public:
     bool is_empty(void);
     void parse_line(std::string &line);
     ~bulk(){
-        print_counters("_main");
+        print_counters("main");
     }
 };
 
@@ -295,8 +312,8 @@ int main(int argc, char ** argv)
     }
 
     class bulk b{j};
-    printer printerHandler("_print1");
-    saver saverHandler("_saver1", "_saver2");
+    printer printerHandler("log");
+    saver saverHandler("file1", "file2"/*, "file3", "file4", "file5", "file6", "file7", "file8"*/);
 
     b.add_handler(printerHandler);
     b.add_handler(saverHandler);
