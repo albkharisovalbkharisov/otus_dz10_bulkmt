@@ -8,17 +8,15 @@ find_package(Threads)
 
 add_executable(bulkmt bulkmt.cpp)
 
-add_library(terminator terminator.cpp)
-
-set_target_properties(bulkmt terminator PROPERTIES
+set_target_properties(bulkmt PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED ON
     COMPILE_OPTIONS "-Wpedantic;-Wall;-Wextra"
+    # COMPILE_OPTIONS "-Wpedantic;-Wall;-Wextra;-fsanitize=thread"
 )
 
 target_link_libraries(bulkmt
     ${CMAKE_THREAD_LIBS_INIT}
-    terminator
 )
 
 

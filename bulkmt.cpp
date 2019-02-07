@@ -6,7 +6,6 @@
 #include <ctime>
 #include <string>
 #include <signal.h>
-#include "terminator.h"
 #include <stdexcept>
 
 #include <chrono>
@@ -43,26 +42,6 @@ public:
     }
 };
 
-
-/**
- *                           interface, singleton
- *                          +---------------------+
- *     main() - - - - - - - |   IbaseTerminator   |
- *                          +---------------------+
- *                              /\
- *                              ||
- *     interface                ||
- *   +------------+         +--------------+
- *   | IbaseClass | - - - - | class bulk   |
- *   +------------+         +--------------+
- *     /\      /\
- *     ||      ||
- * +-------+  +---------+
- * | saver |  | printer |
- * +-------+  +---------+
- *
- */
-
 struct worker
 {
     std::thread thread;
@@ -94,7 +73,13 @@ public:
             vThread.emplace_back(s);
     }
 
-    void terminate(void)
+    void start_threads(void)
+    {
+        for (auto &w : vThread)
+            w.thread = std::thread(&IbaseClass::work, this, std::ref(w));   // moving thread is OK
+    }
+
+    void stop_threads(void)
     {
         exit = true;
         cv.notify_all();
@@ -103,7 +88,7 @@ public:
                 a.thread.join();
             }
             else
-                std::cout << "terminate() : join..." << a.name << " can't!" << std::endl;
+                std::cout << "stop_threads() : join..." << a.name << " can't!" << std::endl;
         }
     }
 
@@ -113,18 +98,13 @@ public:
             a.dbg.print_counters(a.name);
     }
 
-    void start_threads(void)
-    {
-        for (auto &w : vThread)
-            w.thread = std::thread(&IbaseClass::work, this, std::ref(w));   // moving thread is OK
-    }
-
     void notify(type_to_handle &ht)
     {
         qMsg.push(ht);
         cv.notify_one();
     }
 
+private:
     void work(struct worker &w)
     {
         while(1) {
@@ -162,9 +142,6 @@ public:
         }
         fs.close();
     }
-    ~saver() {
-        terminate();
-    }
 };
 
 class printer : public IbaseClass
@@ -175,9 +152,6 @@ public:
     void handle(const type_to_handle &ht) override
     {
         std::cout << output_string_make(ht.vs);
-    }
-    ~printer() {
-        terminate();
     }
 
 private:
@@ -197,7 +171,7 @@ private:
     }
 };
 
-class bulk : public IbaseTerminator, public dbg_counter<true>
+class bulk : public dbg_counter<true>
 {
     const size_t bulk_size;
     std::vector<std::string> vs;
@@ -235,6 +209,9 @@ public:
     bool is_full(void);
     bool is_empty(void);
     void parse_line(std::string &line);
+    ~bulk(){
+        print_counters("_main");
+    }
 };
 
 
@@ -294,9 +271,6 @@ bool bulk::is_empty(void)
 
 int main(int argc, char ** argv)
 {
-    printer printerHandler("_print1");
-    saver saverHandler("_saver1", "_saver2");
-
     if (argc != 2)
     {
         std::cerr << "Incorrect number of arguments: " << argc - 1 << ", expected: 1" << std::endl;
@@ -321,18 +295,20 @@ int main(int argc, char ** argv)
     }
 
     class bulk b{j};
+    printer printerHandler("_print1");
+    saver saverHandler("_saver1", "_saver2");
+
     b.add_handler(printerHandler);
     b.add_handler(saverHandler);
     printerHandler.start_threads();
     saverHandler.start_threads();
 
-    // handle SIGINT, SIGTERM
-    terminator::getInstance().add_signal_handler(b);
-
     for(std::string line; std::getline(std::cin, line); ) {
         b.parse_line(line);
     }
 
+    printerHandler.stop_threads();
+    saverHandler.stop_threads();
     return 0;
 }
 
