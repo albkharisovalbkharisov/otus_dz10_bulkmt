@@ -100,7 +100,10 @@ public:
 
     void notify(type_to_handle &ht)
     {
-        qMsg.push(ht);
+        {
+            std::unique_lock<std::mutex> lk(cv_m);
+            qMsg.push(ht);
+        }
         cv.notify_one();
     }
 
@@ -129,7 +132,7 @@ public:
     saver(Names... names) : IbaseClass(names...) {}
     void handle(const type_to_handle &ht) override
     {
-#if 1
+#if 0
         // algorythm difficultifier \m/_
         volatile long double array[20];
         for (auto a : array)
